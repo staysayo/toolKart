@@ -177,6 +177,116 @@ bool readAndDisplayParameters(uint8_t paramCount) {
 
     // TRANSMIT
     digitalWrite(PIN_BUS1_RE_DE, HIGH);
+    Serial1.write(frame,
+            } else {
+                Serial.println("\n[!] COMMUNICATION FAILED.");
+                Serial.println("Troubleshooting Checklist:");
+                Serial.println(" 1. Is the EM-282D powered on (12V-48V)?");
+                Serial.println(" 2. Are RS-485 'A' and 'B' wires swapped on the breadboard?");
+                Serial.println(" 3. Is the Teensy GND connected to the MAX3485 transceiver GND?");
+                Serial.println(" 4. Did the controller ID or Baud rate get changed previously?");
+            }
+            Serial.println("\nSend 'r' to try again...");
+        }
+    }
+}
+
+// =========================================================================
+// MODBUS IMPLEMENTATION FUNCTIONS
+// =========================================================================
+
+bool readAndDisplayDeviceInfo() {
+    flushReceiveBuffer();
+    
+    uint8_t frame[8];
+    frame[0] = TARGET_SLAVE_ID;
+    frame[1] = FC_READ_HOLDING;
+    // Address 40001 (Offset 0x0000) - Device Info Block
+    frame[2] = 0x00; 
+    frame[3] = 0x00;
+    // Quantity to read: 10 registers (0x0A)
+    frame[4] = 0x00; 
+    frame[5] = 0x0A;
+    
+    uint16_t crc = calculateCRC(frame, 6);
+    frame[6] = crc & 0xFF;
+    frame[7] = (crc >> 8) & 0xFF;
+
+    Serial.print("TX Device Info Request... ");
+
+    // TRANSMIT
+    digitalWrite(PIN_BUS1_RE_DE, HIGH);
+    Serial1.write(frame, 8);
+    Serial1.flush(); // CRITICAL: Wait for last bit to leave UART
+    digitalWrite(PIN_BUS1_RE_DE, LOW);
+    
+    Serial.print("Sent. Waiting for RX... ");
+
+    // Expected Response: Slave(1) + FC(1) + ByteCount(1) + Data(20) + CRC(2) = 25 bytes
+    uint8_t expectedBytes = 25;
+    uint32_t startTime = millis();
+    
+    while (Serial1.available() < expectedBytes) {
+        if (millis() - startTime > 100) { // 100ms Timeout
+            Serial.println("TIMEOUT!");
+            return false;
+        }
+    }
+
+    Serial.println("Received!");
+
+    // Read payload
+    uint8_t response[25];
+    for (int i = 0; i < expectedBytes; i++) {
+        response[i] = Serial1.read();
+    }
+
+    // Validate CRC
+    uint16_t receivedCrc = response[23] | (response[24] << 8);
+    uint16_t calculatedCrc = calculateCRC(response, 23);
+
+    if (receivedCrc != calculatedCrc) {
+        Serial.println("CRC ERROR! Data corrupted by noise.");
+        return false;
+    }
+
+    // Parse Device Info
+    // Register 1 (Bytes 3,4) = Protocol Version
+    // Register 2 (Bytes 5,6) = Device Version
+    // Register 3 (Bytes 7,8) = Number of Parameters
+    uint16_t protocolVer = (response[3] << 8) | response[4];
+    uint16_t deviceVer = (response[5] << 8) | response[6];
+    uint16_t paramCount = (response[7] << 8) | response[8];
+
+    Serial.println("--- DEVICE INFO ---");
+    Serial.print("Protocol Version: "); Serial.println(protocolVer);
+    Serial.print("Device Version:   "); Serial.println(deviceVer);
+    Serial.print("Parameter Count:  "); Serial.println(paramCount);
+
+    return true;
+}
+
+bool readAndDisplayParameters(uint8_t paramCount) {
+    flushReceiveBuffer();
+    
+    uint8_t frame[8];
+    frame[0] = TARGET_SLAVE_ID;
+    frame[1] = FC_READ_HOLDING;
+    // Address 40101 (Offset 0x0064) - Parameter Block
+    frame[2] = 0x00; 
+    frame[3] = 0x64;
+    // Quantity to read
+    frame[4] = 0x00; 
+    frame[5] = paramCount;
+    
+    uint16_t crc = calculateCRC(frame, 6);
+    frame[6] = crc & 0xFF;
+    frame[7] = (crc >> 8) & 0xFF;
+
+    Serial.print("TX Parameter Request...   ");
+
+    // TRANSMIT
+    digitalWrite(PIN_BUS1_RE_DE, HIGH);
     Serial1.write(frame, 8);
     Serial1.flush(); 
     digitalWrite(PIN_BUS1_RE_DE, LOW);

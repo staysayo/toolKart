@@ -156,7 +156,7 @@ bool readAndDisplayDeviceInfo() {
     return true;
 }
 
-bool readAndDisplCayParameters(uint8_t paramCount) {
+bool readAndDisplayParameters(uint8_t paramCount) {
     flushReceiveBuffer();
     
     uint8_t frame[8];
